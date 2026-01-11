@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ctx installer script
-# Usage: curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/ctx/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/konacodes/ctx/main/install.sh | bash
 
 REPO="konacodes/ctx"
 BINARY_NAME="ctx"
@@ -57,26 +57,29 @@ has_command() {
     command -v "$1" &> /dev/null
 }
 
-# Get the latest release tag from GitHub
+# Get the latest release tag from GitHub (with timeout)
 get_latest_release() {
+    local url="https://api.github.com/repos/${REPO}/releases/latest"
+    local result=""
+
     if has_command curl; then
-        curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+        result=$(curl -sfL --max-time 10 "$url" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
     elif has_command wget; then
-        wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
-    else
-        echo ""
+        result=$(wget -qO- --timeout=10 "$url" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
     fi
+
+    echo "$result"
 }
 
-# Download file
+# Download file with timeout
 download() {
     local url="$1"
     local output="$2"
 
     if has_command curl; then
-        curl -fsSL "$url" -o "$output"
+        curl -fsSL --max-time 60 "$url" -o "$output"
     elif has_command wget; then
-        wget -q "$url" -O "$output"
+        wget -q --timeout=60 "$url" -O "$output"
     else
         error "Neither curl nor wget found. Please install one of them."
     fi
@@ -96,7 +99,7 @@ build_from_source() {
 
     info "Cloning repository..."
     if has_command git; then
-        git clone --depth 1 "https://github.com/${REPO}.git" "$tmp_dir/ctx" 2>/dev/null
+        git clone --depth 1 "https://github.com/${REPO}.git" "$tmp_dir/ctx" || error "Failed to clone repository"
     else
         # Download as tarball if git is not available
         download "https://github.com/${REPO}/archive/refs/heads/main.tar.gz" "$tmp_dir/ctx.tar.gz"
@@ -107,7 +110,7 @@ build_from_source() {
     cd "$tmp_dir/ctx"
 
     info "Compiling (this may take a minute)..."
-    cargo build --release --quiet
+    cargo build --release || error "Build failed"
 
     # Create install directory if it doesn't exist
     mkdir -p "$INSTALL_DIR"
@@ -142,20 +145,22 @@ try_download_binary() {
     local ext=""
     [ "$os" = "windows" ] && ext=".exe"
 
-    local download_url="https://github.com/${REPO}/releases/download/${version}/${BINARY_NAME}-${target}${ext}"
-
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
-    trap "rm -rf $tmp_dir" EXIT
+    local artifact_name="${BINARY_NAME}-${target}${ext}"
+    local download_url="https://github.com/${REPO}/releases/download/${version}/${artifact_name}"
 
     info "Downloading $BINARY_NAME $version for $os/$arch..."
 
-    if download "$download_url" "$tmp_dir/$BINARY_NAME$ext" 2>/dev/null; then
+    local tmp_file
+    tmp_file=$(mktemp)
+    trap "rm -f $tmp_file" RETURN
+
+    if curl -fsSL --max-time 120 "$download_url" -o "$tmp_file" 2>/dev/null; then
         mkdir -p "$INSTALL_DIR"
-        mv "$tmp_dir/$BINARY_NAME$ext" "$INSTALL_DIR/$BINARY_NAME$ext"
+        mv "$tmp_file" "$INSTALL_DIR/$BINARY_NAME$ext"
         chmod +x "$INSTALL_DIR/$BINARY_NAME$ext"
         return 0
     else
+        rm -f "$tmp_file"
         return 1
     fi
 }
@@ -212,18 +217,20 @@ main() {
     info "Install directory: $INSTALL_DIR"
 
     # Try to get the latest release
+    info "Checking for latest release..."
     version=$(get_latest_release)
 
     # Try to download prebuilt binary first
-    if [ -n "$version" ] && try_download_binary "$os" "$arch" "$version"; then
-        success "Installed $BINARY_NAME $version to $INSTALL_DIR"
-    else
-        # Fall back to building from source
-        if [ -n "$version" ]; then
-            warn "No prebuilt binary available for $os/$arch, building from source..."
+    if [ -n "$version" ]; then
+        info "Found release: $version"
+        if try_download_binary "$os" "$arch" "$version"; then
+            success "Installed $BINARY_NAME $version to $INSTALL_DIR"
         else
-            warn "No releases found, building from source..."
+            warn "No prebuilt binary available for $os/$arch, building from source..."
+            build_from_source
         fi
+    else
+        warn "No releases found, building from source..."
         build_from_source
     fi
 
@@ -234,11 +241,9 @@ main() {
         echo ""
 
         # Show version
-        if [[ ":$PATH:" == *":$INSTALL_DIR:"* ]]; then
-            info "Version: $($INSTALL_DIR/$BINARY_NAME --version)"
-        else
-            info "Version: $($INSTALL_DIR/$BINARY_NAME --version 2>/dev/null || echo 'unknown')"
-        fi
+        local ver_output
+        ver_output=$("$INSTALL_DIR/$BINARY_NAME" --version 2>/dev/null || echo "unknown")
+        info "Version: $ver_output"
 
         show_path_instructions
 
@@ -248,7 +253,7 @@ main() {
         echo "  ctx status      # Show project overview"
         echo ""
     else
-        error "Installation failed"
+        error "Installation failed - binary not found at $INSTALL_DIR/$BINARY_NAME"
     fi
 }
 
