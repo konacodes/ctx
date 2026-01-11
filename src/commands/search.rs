@@ -1,10 +1,10 @@
 use anyhow::Result;
-use ignore::WalkBuilder;
 use serde::Serialize;
 use std::path::Path;
 
 use crate::analysis::symbols::{self, SymbolKind};
 use crate::analysis::treesitter::{self, SupportedLanguage};
+use crate::analysis::walker;
 use crate::output::OutputFormat;
 
 #[derive(Debug, Serialize)]
@@ -77,12 +77,9 @@ fn search_text(query: &str, context_lines: usize) -> Result<Vec<SearchResult>> {
     let mut results = Vec::new();
     let query_lower = query.to_lowercase();
 
-    let walker = WalkBuilder::new(".")
-        .hidden(false)
-        .git_ignore(true)
-        .build();
+    let file_walker = walker::create_walker(Path::new(".")).build();
 
-    for entry in walker.flatten() {
+    for entry in file_walker.flatten() {
         let path = entry.path();
 
         if !path.is_file() {
@@ -128,12 +125,9 @@ fn search_symbols(query: &str, _context_lines: usize) -> Result<Vec<SearchResult
     let mut results = Vec::new();
     let query_lower = query.to_lowercase();
 
-    let walker = WalkBuilder::new(".")
-        .hidden(false)
-        .git_ignore(true)
-        .build();
+    let file_walker = walker::create_walker(Path::new(".")).build();
 
-    for entry in walker.flatten() {
+    for entry in file_walker.flatten() {
         let path = entry.path();
 
         if !path.is_file() {
@@ -185,12 +179,9 @@ fn search_callers(function_name: &str, context_lines: usize) -> Result<Vec<Searc
         format!("self.{}(", function_name),
     ];
 
-    let walker = WalkBuilder::new(".")
-        .hidden(false)
-        .git_ignore(true)
-        .build();
+    let file_walker = walker::create_walker(Path::new(".")).build();
 
-    for entry in walker.flatten() {
+    for entry in file_walker.flatten() {
         let path = entry.path();
 
         if !path.is_file() {

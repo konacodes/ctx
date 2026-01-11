@@ -1,10 +1,10 @@
 use anyhow::Result;
-use ignore::WalkBuilder;
 use std::io::{self, Read};
 
 use crate::analysis::git;
 use crate::analysis::relevance;
 use crate::analysis::treesitter;
+use crate::analysis::walker;
 
 #[derive(Debug, Clone, Copy)]
 pub enum InjectFormat {
@@ -115,14 +115,11 @@ fn build_context(prompt: &str, budget: usize) -> Result<String> {
     // Extract keywords and find relevant files
     let keywords = relevance::extract_keywords(prompt);
     if !keywords.is_empty() {
-        // Collect all source files
+        // Collect all source files (respecting .gitignore and common ignores)
         let mut all_files = Vec::new();
-        let walker = WalkBuilder::new(&cwd)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
+        let file_walker = walker::create_walker(&cwd).build();
 
-        for entry in walker.flatten() {
+        for entry in file_walker.flatten() {
             if entry.path().is_file() {
                 if let Some(path) = entry.path().strip_prefix(&cwd).ok() {
                     all_files.push(path.to_string_lossy().to_string());

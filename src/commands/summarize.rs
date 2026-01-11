@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
-use ignore::WalkBuilder;
 use serde::Serialize;
 use std::path::Path;
 
 use crate::analysis::symbols::{self, Symbol};
 use crate::analysis::treesitter::{self, SupportedLanguage};
+use crate::analysis::walker;
 use crate::output::OutputFormat;
 
 #[derive(Debug, Serialize)]
@@ -142,13 +142,11 @@ fn summarize_file(path: &Path) -> Result<FileSummary> {
 fn summarize_directory(path: &Path, depth: usize) -> Result<DirectorySummary> {
     let mut files = Vec::new();
 
-    let walker = WalkBuilder::new(path)
+    let file_walker = walker::create_walker(path)
         .max_depth(Some(depth + 1))
-        .hidden(false)
-        .git_ignore(true)
         .build();
 
-    for entry in walker.flatten() {
+    for entry in file_walker.flatten() {
         let entry_path = entry.path();
 
         if entry_path.is_file() {

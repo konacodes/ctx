@@ -1,11 +1,11 @@
 use anyhow::Result;
-use ignore::WalkBuilder;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::analysis::symbols;
 use crate::analysis::treesitter::{self, SupportedLanguage};
+use crate::analysis::walker;
 use crate::output::OutputFormat;
 
 #[derive(Debug, Serialize)]
@@ -56,13 +56,11 @@ pub fn run(path: Option<&str>, depth: Option<usize>, format: OutputFormat) -> Re
 
     let mut directories: BTreeMap<String, DirectoryInfo> = BTreeMap::new();
 
-    let walker = WalkBuilder::new(root)
+    let file_walker = walker::create_walker(root)
         .max_depth(Some(max_depth))
-        .hidden(false)
-        .git_ignore(true)
         .build();
 
-    for entry in walker.flatten() {
+    for entry in file_walker.flatten() {
         let entry_path = entry.path();
 
         if entry_path.is_dir() {

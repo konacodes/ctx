@@ -8,6 +8,7 @@ use std::path::Path;
 use crate::analysis::git;
 use crate::analysis::symbols::{self, SymbolKind};
 use crate::analysis::treesitter::{self, SupportedLanguage};
+use crate::analysis::walker;
 use crate::output::OutputFormat;
 
 #[derive(Debug, Serialize)]
@@ -283,12 +284,9 @@ fn find_callers(modified_functions: &HashSet<String>) -> Result<Vec<CallerInfo>>
         let mut called_from = Vec::new();
 
         // Search for calls to this function
-        let walker = ignore::WalkBuilder::new(".")
-            .hidden(false)
-            .git_ignore(true)
-            .build();
+        let file_walker = walker::create_walker(Path::new(".")).build();
 
-        for entry in walker.flatten() {
+        for entry in file_walker.flatten() {
             let path = entry.path();
 
             if !path.is_file() {

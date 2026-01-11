@@ -1,5 +1,4 @@
 use anyhow::Result;
-use ignore::WalkBuilder;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::path::Path;
@@ -7,6 +6,7 @@ use std::path::Path;
 use crate::analysis::git;
 use crate::analysis::symbols;
 use crate::analysis::treesitter::{self, SupportedLanguage};
+use crate::analysis::walker;
 use crate::output::OutputFormat;
 
 #[derive(Debug, Serialize)]
@@ -134,12 +134,9 @@ fn find_imported_by(path: &Path) -> Result<Vec<RelatedFile>> {
         return Ok(related);
     }
 
-    let walker = WalkBuilder::new(".")
-        .hidden(false)
-        .git_ignore(true)
-        .build();
+    let file_walker = walker::create_walker(Path::new(".")).build();
 
-    for entry in walker.flatten() {
+    for entry in file_walker.flatten() {
         let entry_path = entry.path();
 
         if !entry_path.is_file() || entry_path == path {
@@ -213,14 +210,11 @@ fn find_test_files(path: &Path) -> Result<Vec<RelatedFile>> {
         format!("{}_spec", file_stem),
     ];
 
-    let walker = WalkBuilder::new(".")
-        .hidden(false)
-        .git_ignore(true)
-        .build();
+    let file_walker = walker::create_walker(Path::new(".")).build();
 
     let mut seen = HashSet::new();
 
-    for entry in walker.flatten() {
+    for entry in file_walker.flatten() {
         let entry_path = entry.path();
 
         if !entry_path.is_file() {
