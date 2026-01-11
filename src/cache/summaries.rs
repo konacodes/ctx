@@ -5,6 +5,7 @@ use std::fs;
 use std::path::Path;
 use std::time::SystemTime;
 
+#[allow(dead_code)]
 const CACHE_FILE: &str = ".ctx/cache/summaries.json";
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -34,6 +35,7 @@ pub struct SymbolSummary {
     pub signature: Option<String>,
 }
 
+#[allow(dead_code)]
 impl SummaryCache {
     pub fn new() -> Self {
         Self {
@@ -96,6 +98,7 @@ impl SummaryCache {
     }
 }
 
+#[allow(dead_code)]
 pub fn get_file_mtime(path: &Path) -> Result<u64> {
     let metadata = fs::metadata(path)?;
     let mtime = metadata.modified()?;

@@ -60,6 +60,7 @@ pub fn parse_file(path: &Path, source: &str) -> Result<Option<Tree>> {
     parser.parse(source, None).context("Failed to parse").map(Some)
 }
 
+#[allow(dead_code)]
 pub fn create_parser(lang: &SupportedLanguage) -> Result<Parser> {
     let mut parser = Parser::new();
     parser

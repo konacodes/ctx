@@ -13,6 +13,7 @@ impl Default for OutputFormat {
     }
 }
 
+#[allow(dead_code)]
 pub fn print_output<T: Serialize + std::fmt::Display>(data: &T, format: OutputFormat) {
     match format {
         OutputFormat::Human => println!("{}", data),
@@ -29,12 +30,14 @@ pub fn print_output<T: Serialize + std::fmt::Display>(data: &T, format: OutputFo
     }
 }
 
+#[allow(dead_code)]
 pub fn print_json<T: Serialize>(data: &T) {
     if let Ok(json) = serde_json::to_string_pretty(data) {
         println!("{}", json);
     }
 }
 
+#[allow(dead_code)]
 pub fn print_compact<T: Serialize>(data: &T) {
     if let Ok(json) = serde_json::to_string(data) {
         println!("{}", json);

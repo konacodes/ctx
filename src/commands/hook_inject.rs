@@ -8,6 +8,7 @@ use crate::analysis::relevance;
 use crate::analysis::treesitter;
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct HookInput {
     prompt: String,
     #[serde(default)]

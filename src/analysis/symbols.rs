@@ -26,6 +26,7 @@ pub enum SymbolKind {
     Variable,
     Type,
     Module,
+    #[allow(dead_code)]
     Import,
 }
 
