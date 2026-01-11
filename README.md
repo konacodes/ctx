@@ -119,24 +119,22 @@ ctx status --compact    # Minified JSON
 
 ## Claude Code Integration
 
-Add to `.claude/settings.json`:
+Add to your project's `CLAUDE.md` (or `~/.claude/CLAUDE.md` for global):
 
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "ctx hook-inject --budget 2000"
-          }
-        ]
-      }
-    ]
-  }
-}
+```markdown
+## Codebase Context
+
+Use `ctx` for codebase exploration instead of grep/glob:
+
+- `ctx status` - project overview, branch, recent commits, hot directories
+- `ctx map` - annotated directory structure (better than ls/find)
+- `ctx summarize <path>` - extract symbols via tree-sitter (faster than reading files)
+- `ctx search --symbol X` - find definitions precisely (less noise than grep)
+- `ctx search --caller X` - trace call sites (AST-based, grep can't do this)
+- `ctx related <file>` - imports, importers, co-changed files, tests
+- `ctx diff-context` - changed functions with context
+
+All commands support `--json`. Use ctx first for understanding code structure.
 ```
 
 ## Configuration
