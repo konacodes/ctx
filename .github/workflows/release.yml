@@ -17,27 +17,31 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux
+          # Linux x86_64
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            cross: false
+            artifact_name: ctx-x86_64-unknown-linux-gnu
+
+          # Linux aarch64 (cross-compiled)
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            cross: true
+            artifact_name: ctx-aarch64-unknown-linux-gnu
+            use_cross: true
 
-          # macOS
+          # macOS Intel
           - target: x86_64-apple-darwin
-            os: macos-latest
-            cross: false
+            os: macos-13
+            artifact_name: ctx-x86_64-apple-darwin
+
+          # macOS Apple Silicon
           - target: aarch64-apple-darwin
             os: macos-latest
-            cross: false
+            artifact_name: ctx-aarch64-apple-darwin
 
           # Windows
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            cross: false
-            ext: .exe
+            artifact_name: ctx-x86_64-pc-windows-msvc.exe
 
     steps:
       - name: Checkout
@@ -49,35 +53,34 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install cross
-        if: matrix.cross
+        if: ${{ matrix.use_cross }}
         run: cargo install cross --git https://github.com/cross-rs/cross
 
-      - name: Build (cross)
-        if: matrix.cross
-        run: cross build --release --target ${{ matrix.target }}
+      - name: Build with cross
+        if: ${{ matrix.use_cross }}
+        run: cross build --release --locked --target ${{ matrix.target }}
 
-      - name: Build (native)
-        if: "!matrix.cross"
-        run: cargo build --release --target ${{ matrix.target }}
+      - name: Build native
+        if: ${{ !matrix.use_cross }}
+        run: cargo build --release --locked --target ${{ matrix.target }}
 
-      - name: Prepare artifact (Unix)
+      - name: Rename binary (Unix)
         if: runner.os != 'Windows'
         run: |
-          cd target/${{ matrix.target }}/release
-          cp ${{ env.BINARY_NAME }} ${{ env.BINARY_NAME }}-${{ matrix.target }}
-          chmod +x ${{ env.BINARY_NAME }}-${{ matrix.target }}
+          mv target/${{ matrix.target }}/release/${{ env.BINARY_NAME }} ${{ matrix.artifact_name }}
+          chmod +x ${{ matrix.artifact_name }}
 
-      - name: Prepare artifact (Windows)
+      - name: Rename binary (Windows)
         if: runner.os == 'Windows'
+        shell: bash
         run: |
-          cd target/${{ matrix.target }}/release
-          cp ${{ env.BINARY_NAME }}.exe ${{ env.BINARY_NAME }}-${{ matrix.target }}.exe
+          mv target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe ${{ matrix.artifact_name }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.BINARY_NAME }}-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}-${{ matrix.target }}${{ matrix.ext }}
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}
           if-no-files-found: error
 
   release:
@@ -95,34 +98,24 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: true
 
-      - name: Prepare release files
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Generate checksums
         run: |
-          mkdir -p release
-          find artifacts -type f -name "ctx-*" -exec cp {} release/ \;
-          cd release
-          for f in ctx-*; do
-            sha256sum "$f" >> checksums.txt
-          done
+          cd artifacts
+          sha256sum ctx-* > checksums.txt
           cat checksums.txt
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           draft: false
-          prerelease: ${{ contains(github.ref, '-') }}
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
           generate_release_notes: true
           files: |
-            release/*
+            artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Update install.sh with the repo name after first release
-  update-installer:
-    name: Verify Installer
-    needs: release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Test install script syntax
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash -n
