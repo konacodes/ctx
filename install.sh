@@ -4,7 +4,7 @@ set -euo pipefail
 # ctx installer script
 # Usage: curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/ctx/main/install.sh | bash
 
-REPO="YOUR_USERNAME/ctx"
+REPO="konacodes/ctx"
 BINARY_NAME="ctx"
 INSTALL_DIR="${CTX_INSTALL_DIR:-$HOME/.local/bin}"
 
