@@ -7,19 +7,19 @@ Context tool for coding agents. Helps AI coding assistants (Claude Code, Aider, 
 ### Quick Install (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/ctx/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/konacodes/ctx/main/install.sh | bash
 ```
 
 ### Custom Install Directory
 
 ```bash
-CTX_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/ctx/main/install.sh | bash
+CTX_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/konacodes/ctx/main/install.sh | bash
 ```
 
 ### Build from Source
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/ctx.git
+git clone https://github.com/konacodes/ctx.git
 cd ctx
 cargo build --release
 cp target/release/ctx ~/.local/bin/
