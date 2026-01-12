@@ -19,6 +19,8 @@ This will:
 - Install hooks to `~/.ctx/hooks`
 - Clean up temporary files
 
+When installing the hooks, note that it only copies them a universal directory. Enter Claude Code, type `/hooks` to install the `~/.ctx/hooks/hook-starup.sh` to SessionStart and `~/.ctx/hooks/hook-user.sh` to UserPromptSubmit
+
 **Custom install directory:**
 ```bash
 CTX_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/konacodes/ctx/main/install.sh | bash
