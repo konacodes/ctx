@@ -117,9 +117,54 @@ ctx status --json       # Pretty JSON
 ctx status --compact    # Minified JSON
 ```
 
-## Claude Code Integration
+## AI Agent Integration
 
-Add to your project's `CLAUDE.md` (or `~/.claude/CLAUDE.md` for global):
+ctx is designed for seamless integration with AI coding agents. It supports multiple integration methods:
+
+### Agent Skills (Recommended)
+
+ctx includes a `.skills/ctx/SKILL.md` file following the [Agent Skills standard](https://agentskills.io). This is supported by Claude Code, Cursor, VS Code Copilot, and OpenAI.
+
+**Project-level (automatic):** If ctx's `.skills/` directory is in your project, agents will discover it automatically.
+
+**Global installation:**
+```bash
+mkdir -p ~/.config/skills
+cp -r /path/to/ctx/.skills/ctx ~/.config/skills/
+```
+
+### MCP Server (Claude Desktop, ChatGPT Desktop)
+
+ctx provides an MCP server wrapper for deep integration:
+
+```bash
+# Install MCP package
+pip install mcp
+
+# Add to Claude Desktop config (~/.config/claude/claude_desktop_config.json):
+{
+  "mcpServers": {
+    "ctx": {
+      "command": "python",
+      "args": ["/path/to/ctx/mcp/ctx_mcp_server.py"]
+    }
+  }
+}
+```
+
+### Universal Discovery
+
+Any AI agent can query ctx's capabilities:
+
+```bash
+ctx --capabilities  # Full JSON tool definitions
+ctx version --json  # Version and supported features
+ctx schema status   # JSON schema for specific command output
+```
+
+### CLAUDE.md Integration
+
+For Claude Code, add to your project's `CLAUDE.md` (or `~/.claude/CLAUDE.md` for global):
 
 ```markdown
 ## Codebase Context
@@ -136,6 +181,15 @@ Use `ctx` for codebase exploration instead of grep/glob:
 
 All commands support `--json`. Use ctx first for understanding code structure.
 ```
+
+### Why ctx over grep/find?
+
+| Task | ctx | Traditional |
+|------|-----|-------------|
+| Find function definition | `ctx search --symbol parse` | `grep -r "def parse\|fn parse"` (noisy) |
+| Find callers | `ctx search --caller validate` | **Impossible with grep** |
+| Understand file | `ctx summarize src/main.rs` | `cat src/main.rs` (too much) |
+| Project structure | `ctx map --depth 2` | `find . -type f \| head` |
 
 ## Configuration
 

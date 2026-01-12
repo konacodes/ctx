@@ -1,7 +1,19 @@
 use ignore::WalkBuilder;
 use std::path::Path;
 
-/// Common directories and files to always ignore, even without a .gitignore
+/// Default patterns for directories and files to ignore during file system traversal.
+///
+/// These patterns are applied as fallbacks even when no `.gitignore` file is present,
+/// ensuring common non-source artifacts are excluded from code analysis.
+///
+/// # Categories
+/// - **Version control**: `.git`, `.svn`, `.hg`, `.bzr`
+/// - **Dependencies**: `node_modules`, `vendor`, `bower_components`
+/// - **Build outputs**: `target`, `build`, `dist`, `__pycache__`
+/// - **IDE/Editor**: `.idea`, `.vscode`, `*.swp`
+/// - **OS files**: `.DS_Store`, `Thumbs.db`
+/// - **Environment/secrets**: `.env`, `*.pem`, `*.key`
+/// - **Temporary files**: `tmp`, `temp`, `*.log`
 const DEFAULT_IGNORES: &[&str] = &[
     // Version control
     ".git",
@@ -78,10 +90,38 @@ const DEFAULT_IGNORES: &[&str] = &[
     ".temp",
 ];
 
-/// Create a WalkBuilder with sensible defaults for code analysis.
+/// Creates a file system walker configured for source code analysis.
 ///
-/// This respects .gitignore files and adds fallback ignores for common
-/// non-source directories like node_modules, .git, build outputs, etc.
+/// This function returns a `WalkBuilder` preconfigured with sensible defaults
+/// for traversing a codebase. It respects `.gitignore` files and applies
+/// additional ignore patterns for common non-source directories.
+///
+/// # Arguments
+/// * `root` - The root directory to start walking from
+///
+/// # Returns
+/// A configured `WalkBuilder` that can be used to iterate over source files.
+/// Call `.build()` on the result to get an iterator.
+///
+/// # Configuration
+/// - Respects `.gitignore`, global gitignore, and `.git/info/exclude`
+/// - Excludes hidden files and directories by default
+/// - Does not follow symbolic links
+/// - Applies [`DEFAULT_IGNORES`] patterns as fallback exclusions
+///
+/// # Example
+/// ```ignore
+/// let walker = create_walker(Path::new("/path/to/project"));
+/// for entry in walker.build() {
+///     if let Ok(entry) = entry {
+///         println!("{}", entry.path().display());
+///     }
+/// }
+/// ```
+///
+/// # See Also
+/// - [`create_walker_with_hidden`] - Variant that includes hidden files
+/// - [`should_ignore`] - Manual ignore checking for paths
 pub fn create_walker(root: &Path) -> WalkBuilder {
     let mut builder = WalkBuilder::new(root);
 
@@ -120,8 +160,32 @@ pub fn create_walker(root: &Path) -> WalkBuilder {
     builder
 }
 
-/// Create a WalkBuilder that includes hidden files but still ignores
-/// common non-source directories.
+/// Creates a file system walker that includes hidden files.
+///
+/// Similar to [`create_walker`], but configured to traverse hidden files
+/// and directories (those starting with `.`). This is useful when you need
+/// to analyze configuration files like `.eslintrc` or `.prettierrc`.
+///
+/// # Arguments
+/// * `root` - The root directory to start walking from
+///
+/// # Returns
+/// A configured `WalkBuilder` that includes hidden files but still excludes
+/// version control directories and other non-source artifacts.
+///
+/// # Configuration
+/// - Respects `.gitignore` files
+/// - **Includes** hidden files and directories
+/// - Explicitly excludes `.git`, `.svn`, `.hg`, `node_modules`, etc.
+/// - Does not follow symbolic links
+///
+/// # Example
+/// ```ignore
+/// let walker = create_walker_with_hidden(Path::new("/path/to/project"));
+/// for entry in walker.build() {
+///     // Will include files like .eslintrc, .prettierrc, etc.
+/// }
+/// ```
 #[allow(dead_code)]
 pub fn create_walker_with_hidden(root: &Path) -> WalkBuilder {
     let mut builder = WalkBuilder::new(root);
@@ -157,8 +221,31 @@ pub fn create_walker_with_hidden(root: &Path) -> WalkBuilder {
     builder
 }
 
-/// Check if a path should be ignored based on common patterns.
-/// Useful as a secondary filter when WalkBuilder isn't available.
+/// Checks if a path should be ignored based on common non-source patterns.
+///
+/// This function provides a standalone way to check if a path matches
+/// common ignore patterns, useful as a secondary filter when `WalkBuilder`
+/// is not available or when filtering paths from other sources.
+///
+/// # Arguments
+/// * `path` - The path to check
+///
+/// # Returns
+/// `true` if the path should be ignored, `false` otherwise.
+///
+/// # Checked Patterns
+/// - Paths containing `.git/`
+/// - Hidden directories (except `.github`, `.gitlab`, `.circleci`)
+/// - Known non-source directories (`node_modules`, `target`, `build`, etc.)
+/// - Compiled/temporary file extensions (`.pyc`, `.swp`, `.log`)
+///
+/// # Example
+/// ```ignore
+/// assert!(should_ignore(Path::new("node_modules/package/index.js")));
+/// assert!(should_ignore(Path::new(".git/config")));
+/// assert!(!should_ignore(Path::new("src/main.rs")));
+/// assert!(!should_ignore(Path::new(".github/workflows/ci.yml")));
+/// ```
 #[allow(dead_code)]
 pub fn should_ignore(path: &Path) -> bool {
     let path_str = path.to_string_lossy();

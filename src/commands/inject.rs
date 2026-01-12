@@ -1,15 +1,31 @@
 use anyhow::Result;
 use std::io::{self, Read};
 
-use crate::analysis::git;
-use crate::analysis::relevance;
-use crate::analysis::treesitter;
-use crate::analysis::walker;
+use super::context_builder;
 
+/// Specifies how context should be combined with user input in the inject command.
+///
+/// The inject command reads a prompt from stdin and combines it with automatically
+/// generated project context. This enum determines the arrangement of context
+/// relative to the original prompt.
+///
+/// # Variants
+/// * `Prepend` - Context appears before the prompt, separated by `---`
+/// * `Append` - Context appears after the prompt, separated by `---`
+/// * `Wrap` - Context is wrapped in `[CTX-START]`/`[CTX-END]` markers before the prompt
+///
+/// # Parsing
+/// Supports case-insensitive parsing from strings via `FromStr`.
 #[derive(Debug, Clone, Copy)]
 pub enum InjectFormat {
+    /// Places context before the prompt with a `---` separator.
+    /// Output: `<context>\n---\n<prompt>`
     Prepend,
+    /// Places context after the prompt with a `---` separator.
+    /// Output: `<prompt>\n---\n<context>`
     Append,
+    /// Wraps context in marker tags before the prompt.
+    /// Output: `[CTX-START]\n<context>\n[CTX-END]\n<prompt>`
     Wrap,
 }
 
@@ -26,12 +42,43 @@ impl std::str::FromStr for InjectFormat {
     }
 }
 
+/// Executes the inject command to add project context to a prompt.
+///
+/// Reads a prompt from stdin, generates relevant project context within
+/// the specified token budget, and outputs the combined result to stdout
+/// in the specified format.
+///
+/// # Arguments
+/// * `budget` - Maximum estimated token count for the generated context
+/// * `format` - How to arrange context relative to the prompt
+///
+/// # Input
+/// Reads the user's prompt from stdin until EOF.
+///
+/// # Output
+/// Prints to stdout in one of three formats:
+/// - **Prepend**: `<context>\n---\n<prompt>`
+/// - **Append**: `<prompt>\n---\n<context>`
+/// - **Wrap**: `[CTX-START]\n<context>\n[CTX-END]\n<prompt>`
+///
+/// # Example Usage
+/// ```bash
+/// echo "How do I add a new command?" | ctx inject --budget 500 --format prepend
+/// ```
+///
+/// # Context Generation
+/// The generated context includes:
+/// - Project name and type
+/// - Current git branch and status
+/// - Recently modified files
+/// - Files mentioned in the prompt
+/// - Relevant files based on keyword matching
 pub fn run(budget: usize, format: InjectFormat) -> Result<()> {
     // Read prompt from stdin
     let mut prompt = String::new();
     io::stdin().read_to_string(&mut prompt)?;
 
-    let context = build_context(&prompt, budget)?;
+    let context = context_builder::build_context(&prompt, budget, false)?;
 
     match format {
         InjectFormat::Prepend => {
@@ -55,109 +102,134 @@ pub fn run(budget: usize, format: InjectFormat) -> Result<()> {
     Ok(())
 }
 
-fn build_context(prompt: &str, budget: usize) -> Result<String> {
-    let mut context_parts = Vec::new();
-    let mut tokens_used = 0;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
 
-    let cwd = std::env::current_dir()?;
+    #[test]
+    fn test_inject_format_from_str() {
+        // Test valid lowercase formats
+        assert!(matches!(
+            InjectFormat::from_str("prepend").unwrap(),
+            InjectFormat::Prepend
+        ));
+        assert!(matches!(
+            InjectFormat::from_str("append").unwrap(),
+            InjectFormat::Append
+        ));
+        assert!(matches!(
+            InjectFormat::from_str("wrap").unwrap(),
+            InjectFormat::Wrap
+        ));
 
-    // Project info
-    let project_name = treesitter::detect_project_name(&cwd).unwrap_or_else(|| "unknown".to_string());
-    let project_type = treesitter::detect_project_type(&cwd).unwrap_or("unknown");
+        // Test case insensitivity - uppercase
+        assert!(matches!(
+            InjectFormat::from_str("PREPEND").unwrap(),
+            InjectFormat::Prepend
+        ));
+        assert!(matches!(
+            InjectFormat::from_str("APPEND").unwrap(),
+            InjectFormat::Append
+        ));
+        assert!(matches!(
+            InjectFormat::from_str("WRAP").unwrap(),
+            InjectFormat::Wrap
+        ));
 
-    // Git info
-    let git_info = if let Ok(repo) = git::find_repo(&cwd) {
-        let status = git::get_status(&repo).ok();
-        let branch = status.as_ref().map(|s| s.branch.clone()).unwrap_or_else(|| "unknown".to_string());
+        // Test case insensitivity - mixed case
+        assert!(matches!(
+            InjectFormat::from_str("Prepend").unwrap(),
+            InjectFormat::Prepend
+        ));
+        assert!(matches!(
+            InjectFormat::from_str("ApPeNd").unwrap(),
+            InjectFormat::Append
+        ));
+        assert!(matches!(
+            InjectFormat::from_str("wRaP").unwrap(),
+            InjectFormat::Wrap
+        ));
 
-        let dirty_marker = if status.as_ref().map(|s| s.is_dirty).unwrap_or(false) {
-            "*"
-        } else {
-            ""
-        };
+        // Test invalid formats return errors
+        let result = InjectFormat::from_str("invalid");
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("Invalid format"));
+        assert!(err_msg.contains("invalid"));
 
-        format!("branch={}{}", branch, dirty_marker)
-    } else {
-        "no-git".to_string()
-    };
+        // Test empty string returns error
+        let result = InjectFormat::from_str("");
+        assert!(result.is_err());
 
-    let header = format!("[CTX: project={} lang={} {}]", project_name, project_type, git_info);
-    tokens_used += estimate_tokens(&header);
-    context_parts.push(header);
+        // Test whitespace returns error
+        let result = InjectFormat::from_str("  ");
+        assert!(result.is_err());
 
-    // Recent file activity
-    if let Ok(repo) = git::find_repo(&cwd) {
-        if let Ok(activity) = git::get_recent_file_activity(&repo, 5) {
-            for file in activity.iter().take(3) {
-                let line = format!("[RECENT: {} modified {}]", file.path, file.last_modified);
-                let line_tokens = estimate_tokens(&line);
-                if tokens_used + line_tokens > budget {
-                    break;
-                }
-                tokens_used += line_tokens;
-                context_parts.push(line);
-            }
-        }
+        // Test similar but incorrect values return errors
+        let result = InjectFormat::from_str("pre");
+        assert!(result.is_err());
+
+        let result = InjectFormat::from_str("prependx");
+        assert!(result.is_err());
+
+        let result = InjectFormat::from_str("append ");
+        assert!(result.is_err());
     }
 
-    // Find files mentioned in prompt
-    let mentioned_files = relevance::extract_mentioned_files(prompt);
-    for file in mentioned_files.iter().take(5) {
-        let line = format!("[MENTIONED: {}]", file);
-        let line_tokens = estimate_tokens(&line);
-        if tokens_used + line_tokens > budget {
-            break;
-        }
-        tokens_used += line_tokens;
-        context_parts.push(line);
+    #[test]
+    fn test_inject_format_debug() {
+        // Test that InjectFormat implements Debug
+        let format = InjectFormat::Prepend;
+        let debug_str = format!("{:?}", format);
+        assert_eq!(debug_str, "Prepend");
+
+        let format2 = InjectFormat::Append;
+        let debug_str2 = format!("{:?}", format2);
+        assert_eq!(debug_str2, "Append");
+
+        let format3 = InjectFormat::Wrap;
+        let debug_str3 = format!("{:?}", format3);
+        assert_eq!(debug_str3, "Wrap");
     }
 
-    // Extract keywords and find relevant files
-    let keywords = relevance::extract_keywords(prompt);
-    if !keywords.is_empty() {
-        // Collect all source files (respecting .gitignore and common ignores)
-        let mut all_files = Vec::new();
-        let file_walker = walker::create_walker(&cwd).build();
+    #[test]
+    fn test_inject_format_clone() {
+        // Test that InjectFormat implements Clone correctly
+        let original = InjectFormat::Prepend;
+        let cloned = original.clone();
+        assert!(matches!(cloned, InjectFormat::Prepend));
 
-        for entry in file_walker.flatten() {
-            if entry.path().is_file() {
-                if let Some(path) = entry.path().strip_prefix(&cwd).ok() {
-                    all_files.push(path.to_string_lossy().to_string());
-                }
-            }
-        }
+        let original2 = InjectFormat::Append;
+        let cloned2 = original2.clone();
+        assert!(matches!(cloned2, InjectFormat::Append));
 
-        // Score files for relevance
-        if let Ok(repo) = git::find_repo(&cwd) {
-            if let Ok(scored) = relevance::score_files_for_prompt(&repo, prompt, &all_files, budget - tokens_used) {
-                for scored_file in scored.iter().take(5) {
-                    let reasons = scored_file.reasons.join(", ");
-                    let line = format!("[RELEVANT: {} ({})]", scored_file.path, reasons);
-                    let line_tokens = estimate_tokens(&line);
-                    if tokens_used + line_tokens > budget {
-                        break;
-                    }
-                    tokens_used += line_tokens;
-                    context_parts.push(line);
-                }
-            }
-        }
+        let original3 = InjectFormat::Wrap;
+        let cloned3 = original3.clone();
+        assert!(matches!(cloned3, InjectFormat::Wrap));
     }
 
-    // Keywords summary
-    if !keywords.is_empty() && tokens_used < budget {
-        let keywords_str = keywords.iter().take(10).cloned().collect::<Vec<_>>().join(", ");
-        let line = format!("[KEYWORDS: {}]", keywords_str);
-        let line_tokens = estimate_tokens(&line);
-        if tokens_used + line_tokens <= budget {
-            context_parts.push(line);
-        }
+    #[test]
+    fn test_inject_format_copy() {
+        // Test that InjectFormat implements Copy
+        let format = InjectFormat::Wrap;
+        let copied = format;
+        // Both should still be usable since InjectFormat is Copy
+        assert!(matches!(format, InjectFormat::Wrap));
+        assert!(matches!(copied, InjectFormat::Wrap));
     }
 
-    Ok(context_parts.join("\n"))
-}
+    #[test]
+    fn test_inject_format_error_message_content() {
+        // Test that error messages are helpful
+        let result = InjectFormat::from_str("wrong");
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
 
-fn estimate_tokens(text: &str) -> usize {
-    // Rough estimate: ~4 characters per token
-    (text.len() + 3) / 4
+        // Error message should contain the invalid input
+        assert!(err_msg.contains("wrong"));
+
+        // Error message should suggest valid options
+        assert!(err_msg.contains("prepend") || err_msg.contains("append") || err_msg.contains("wrap"));
+    }
 }

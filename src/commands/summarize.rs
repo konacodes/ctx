@@ -68,49 +68,97 @@ impl std::fmt::Display for DirectorySummary {
     }
 }
 
+/// Result of summarizing a single path (either file or directory)
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum SummaryResult {
+    File(FileSummary),
+    Directory(DirectorySummary),
+    Skeleton { path: String, skeleton: String },
+}
+
 pub fn run(
-    path: &str,
+    paths: &[String],
     depth: Option<usize>,
     skeleton: bool,
     format: OutputFormat,
 ) -> Result<()> {
-    let target = Path::new(path);
+    let mut results: Vec<SummaryResult> = Vec::new();
+    let mut first = true;
 
-    if !target.exists() {
-        anyhow::bail!("Path does not exist: {}", path);
+    for path in paths {
+        let target = Path::new(path);
+
+        if !target.exists() {
+            anyhow::bail!("Path does not exist: {}", path);
+        }
+
+        if target.is_file() {
+            if skeleton {
+                let skeleton_result = get_skeleton_result(target)?;
+                results.push(skeleton_result);
+            } else {
+                let summary = summarize_file(target)?;
+                results.push(SummaryResult::File(summary));
+            }
+        } else {
+            let summary = summarize_directory(target, depth.unwrap_or(1))?;
+            results.push(SummaryResult::Directory(summary));
+        }
     }
 
-    if target.is_file() {
-        let summary = summarize_file(target)?;
-
-        if skeleton {
-            print_skeleton(target, format)?;
-        } else {
-            match format {
-                OutputFormat::Human => println!("{}", summary),
-                OutputFormat::Json => {
-                    println!("{}", serde_json::to_string_pretty(&summary)?);
+    // Output based on format
+    match format {
+        OutputFormat::Human => {
+            for result in &results {
+                if !first {
+                    println!("\n{}", "=".repeat(60));
+                    println!();
                 }
-                OutputFormat::Compact => {
-                    println!("{}", serde_json::to_string(&summary)?);
+                first = false;
+                match result {
+                    SummaryResult::File(summary) => println!("{}", summary),
+                    SummaryResult::Directory(summary) => println!("{}", summary),
+                    SummaryResult::Skeleton { path, skeleton } => {
+                        println!("{}:", path);
+                        println!("{}", skeleton);
+                    }
                 }
             }
         }
-    } else {
-        let summary = summarize_directory(target, depth.unwrap_or(1))?;
-
-        match format {
-            OutputFormat::Human => println!("{}", summary),
-            OutputFormat::Json => {
-                println!("{}", serde_json::to_string_pretty(&summary)?);
+        OutputFormat::Json => {
+            if results.len() == 1 {
+                println!("{}", serde_json::to_string_pretty(&results[0])?);
+            } else {
+                println!("{}", serde_json::to_string_pretty(&results)?);
             }
-            OutputFormat::Compact => {
-                println!("{}", serde_json::to_string(&summary)?);
+        }
+        OutputFormat::Compact => {
+            if results.len() == 1 {
+                println!("{}", serde_json::to_string(&results[0])?);
+            } else {
+                println!("{}", serde_json::to_string(&results)?);
             }
         }
     }
 
     Ok(())
+}
+
+fn get_skeleton_result(path: &Path) -> Result<SummaryResult> {
+    let source = std::fs::read_to_string(path).context("Failed to read file")?;
+    let lang =
+        SupportedLanguage::from_path(path).ok_or_else(|| anyhow::anyhow!("Unsupported language"))?;
+
+    let tree =
+        treesitter::parse_file(path, &source)?.ok_or_else(|| anyhow::anyhow!("Failed to parse"))?;
+
+    let skeleton = symbols::get_skeleton(&tree, &source, &lang);
+
+    Ok(SummaryResult::Skeleton {
+        path: path.to_string_lossy().to_string(),
+        skeleton,
+    })
 }
 
 fn summarize_file(path: &Path) -> Result<FileSummary> {
@@ -166,33 +214,3 @@ fn summarize_directory(path: &Path, depth: usize) -> Result<DirectorySummary> {
     })
 }
 
-fn print_skeleton(path: &Path, format: OutputFormat) -> Result<()> {
-    let source = std::fs::read_to_string(path).context("Failed to read file")?;
-    let lang =
-        SupportedLanguage::from_path(path).ok_or_else(|| anyhow::anyhow!("Unsupported language"))?;
-
-    let tree =
-        treesitter::parse_file(path, &source)?.ok_or_else(|| anyhow::anyhow!("Failed to parse"))?;
-
-    let skeleton = symbols::get_skeleton(&tree, &source, &lang);
-
-    match format {
-        OutputFormat::Human => println!("{}", skeleton),
-        OutputFormat::Json => {
-            let output = serde_json::json!({
-                "path": path.to_string_lossy(),
-                "skeleton": skeleton
-            });
-            println!("{}", serde_json::to_string_pretty(&output)?);
-        }
-        OutputFormat::Compact => {
-            let output = serde_json::json!({
-                "path": path.to_string_lossy(),
-                "skeleton": skeleton
-            });
-            println!("{}", serde_json::to_string(&output)?);
-        }
-    }
-
-    Ok(())
-}
