@@ -9,6 +9,7 @@ REPO_URL="https://github.com/${REPO}.git"
 BINARY_NAME="ctx"
 INSTALL_DIR="${CTX_INSTALL_DIR:-$HOME/.local/bin}"
 SKILLS_DIR="$HOME/.claude/skills"
+HOOKS_DIR="$HOME/.ctx/hooks"
 
 # Colors for output
 RED='\033[0;31m'
@@ -152,6 +153,17 @@ main() {
         warn "Skills directory not found in repository, skipping skills installation"
     fi
 
+    # Install hooks
+    info "Installing hooks..."
+    mkdir -p "$HOOKS_DIR"
+    if [ -d "hooks" ]; then
+        cp hooks/*.sh "$HOOKS_DIR/" 2>/dev/null || true
+        chmod +x "$HOOKS_DIR"/*.sh 2>/dev/null || true
+        success "Installed hooks to $HOOKS_DIR"
+    else
+        warn "Hooks directory not found in repository, skipping hooks installation"
+    fi
+
     # Return to original directory before cleanup
     cd - > /dev/null
 
@@ -174,10 +186,11 @@ main() {
         echo "  ctx status      # Show project overview"
         echo ""
 
-        if [ -d "$SKILLS_DIR/ctx" ]; then
-            info "Claude Code skills installed at: $SKILLS_DIR/ctx"
-            echo ""
-        fi
+        echo "Installed components:"
+        echo "  Binary: $INSTALL_DIR/$BINARY_NAME"
+        [ -d "$SKILLS_DIR/ctx" ] && echo "  Skills: $SKILLS_DIR/ctx"
+        [ -d "$HOOKS_DIR" ] && echo "  Hooks:  $HOOKS_DIR"
+        echo ""
     else
         error "Installation failed - binary not found at $INSTALL_DIR/$BINARY_NAME"
     fi

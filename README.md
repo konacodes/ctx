@@ -6,23 +6,45 @@ Context tool for coding agents. Helps AI coding assistants (Claude Code, Aider, 
 
 ### Quick Install (recommended)
 
+The install script handles everything automatically:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/konacodes/ctx/main/install.sh | bash
 ```
 
-### Custom Install Directory
+This will:
+- Clone the repository and build from source
+- Install the `ctx` binary to `~/.local/bin`
+- Install Claude Code skills to `~/.claude/skills/ctx`
+- Install hooks to `~/.ctx/hooks`
+- Clean up temporary files
 
+**Custom install directory:**
 ```bash
 CTX_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/konacodes/ctx/main/install.sh | bash
 ```
 
-### Build from Source
+### Build from Source (Manual)
+
+If you prefer to handle installation yourself:
 
 ```bash
+# Clone and build
 git clone https://github.com/konacodes/ctx.git
 cd ctx
 cargo build --release
+
+# Install binary
 cp target/release/ctx ~/.local/bin/
+
+# (Optional) Install Claude Code skills
+mkdir -p ~/.claude/skills
+cp -r .claude/skills/ctx ~/.claude/skills/
+
+# (Optional) Install hooks
+mkdir -p ~/.ctx/hooks
+cp hooks/*.sh ~/.ctx/hooks/
+chmod +x ~/.ctx/hooks/*.sh
 ```
 
 ## Commands
