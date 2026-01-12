@@ -5,8 +5,10 @@ set -euo pipefail
 # Usage: curl -fsSL https://raw.githubusercontent.com/konacodes/ctx/main/install.sh | bash
 
 REPO="konacodes/ctx"
+REPO_URL="https://github.com/${REPO}.git"
 BINARY_NAME="ctx"
 INSTALL_DIR="${CTX_INSTALL_DIR:-$HOME/.local/bin}"
+SKILLS_DIR="$HOME/.claude/skills"
 
 # Colors for output
 RED='\033[0;31m'
@@ -32,43 +34,9 @@ error() {
     exit 1
 }
 
-# Detect OS
-detect_os() {
-    case "$(uname -s)" in
-        Linux*)  echo "linux" ;;
-        Darwin*) echo "darwin" ;;
-        MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
-        *) error "Unsupported operating system: $(uname -s)" ;;
-    esac
-}
-
-# Detect architecture
-detect_arch() {
-    case "$(uname -m)" in
-        x86_64|amd64) echo "x86_64" ;;
-        arm64|aarch64) echo "aarch64" ;;
-        armv7l) echo "armv7" ;;
-        *) error "Unsupported architecture: $(uname -m)" ;;
-    esac
-}
-
 # Check if a command exists
 has_command() {
     command -v "$1" &> /dev/null
-}
-
-# Get the latest release tag from GitHub (with timeout)
-get_latest_release() {
-    local url="https://api.github.com/repos/${REPO}/releases/latest"
-    local result=""
-
-    if has_command curl; then
-        result=$(curl -sfL --max-time 10 "$url" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
-    elif has_command wget; then
-        result=$(wget -qO- --timeout=10 "$url" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
-    fi
-
-    echo "$result"
 }
 
 # Download file with timeout
@@ -82,86 +50,6 @@ download() {
         wget -q --timeout=60 "$url" -O "$output"
     else
         error "Neither curl nor wget found. Please install one of them."
-    fi
-}
-
-# Build from source using cargo
-build_from_source() {
-    info "Building from source..."
-
-    if ! has_command cargo; then
-        error "Cargo not found. Please install Rust: https://rustup.rs"
-    fi
-
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
-    trap "rm -rf $tmp_dir" EXIT
-
-    info "Cloning repository..."
-    if has_command git; then
-        git clone --depth 1 "https://github.com/${REPO}.git" "$tmp_dir/ctx" || error "Failed to clone repository"
-    else
-        # Download as tarball if git is not available
-        download "https://github.com/${REPO}/archive/refs/heads/main.tar.gz" "$tmp_dir/ctx.tar.gz"
-        tar -xzf "$tmp_dir/ctx.tar.gz" -C "$tmp_dir"
-        mv "$tmp_dir/ctx-main" "$tmp_dir/ctx"
-    fi
-
-    cd "$tmp_dir/ctx"
-
-    info "Compiling (this may take a minute)..."
-    cargo build --release || error "Build failed"
-
-    # Create install directory if it doesn't exist
-    mkdir -p "$INSTALL_DIR"
-
-    # Copy binary
-    cp "target/release/$BINARY_NAME" "$INSTALL_DIR/"
-    chmod +x "$INSTALL_DIR/$BINARY_NAME"
-
-    success "Built and installed $BINARY_NAME to $INSTALL_DIR"
-}
-
-# Try to download prebuilt binary
-try_download_binary() {
-    local os="$1"
-    local arch="$2"
-    local version="$3"
-
-    if [ -z "$version" ]; then
-        return 1
-    fi
-
-    local target=""
-    case "$os-$arch" in
-        linux-x86_64)   target="x86_64-unknown-linux-gnu" ;;
-        linux-aarch64)  target="aarch64-unknown-linux-gnu" ;;
-        darwin-x86_64)  target="x86_64-apple-darwin" ;;
-        darwin-aarch64) target="aarch64-apple-darwin" ;;
-        windows-x86_64) target="x86_64-pc-windows-msvc" ;;
-        *) return 1 ;;
-    esac
-
-    local ext=""
-    [ "$os" = "windows" ] && ext=".exe"
-
-    local artifact_name="${BINARY_NAME}-${target}${ext}"
-    local download_url="https://github.com/${REPO}/releases/download/${version}/${artifact_name}"
-
-    info "Downloading $BINARY_NAME $version for $os/$arch..."
-
-    local tmp_file
-    tmp_file=$(mktemp)
-    trap "rm -f $tmp_file" RETURN
-
-    if curl -fsSL --max-time 120 "$download_url" -o "$tmp_file" 2>/dev/null; then
-        mkdir -p "$INSTALL_DIR"
-        mv "$tmp_file" "$INSTALL_DIR/$BINARY_NAME$ext"
-        chmod +x "$INSTALL_DIR/$BINARY_NAME$ext"
-        return 0
-    else
-        rm -f "$tmp_file"
-        return 1
     fi
 }
 
@@ -204,35 +92,68 @@ show_path_instructions() {
 
 main() {
     echo ""
-    echo "  ┌─────────────────────────────────────┐"
+    echo "  ┌───────────────────────────────────────┐"
     echo "  │  ctx - Context tool for coding agents │"
-    echo "  └─────────────────────────────────────┘"
+    echo "  └───────────────────────────────────────┘"
     echo ""
 
-    local os arch version
-    os=$(detect_os)
-    arch=$(detect_arch)
-
-    info "Detected platform: $os/$arch"
-    info "Install directory: $INSTALL_DIR"
-
-    # Try to get the latest release
-    info "Checking for latest release..."
-    version=$(get_latest_release)
-
-    # Try to download prebuilt binary first
-    if [ -n "$version" ]; then
-        info "Found release: $version"
-        if try_download_binary "$os" "$arch" "$version"; then
-            success "Installed $BINARY_NAME $version to $INSTALL_DIR"
-        else
-            warn "No prebuilt binary available for $os/$arch, building from source..."
-            build_from_source
-        fi
-    else
-        warn "No releases found, building from source..."
-        build_from_source
+    # Check for required tools
+    if ! has_command cargo; then
+        error "Cargo not found. Please install Rust first: https://rustup.rs"
     fi
+
+    # Create temp directory for cloning
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+
+    # Cleanup function
+    cleanup() {
+        info "Cleaning up temporary files..."
+        rm -rf "$tmp_dir"
+    }
+    trap cleanup EXIT
+
+    # Clone the repository
+    info "Cloning repository..."
+    if has_command git; then
+        git clone --depth 1 "$REPO_URL" "$tmp_dir/ctx" || error "Failed to clone repository"
+    else
+        # Download as tarball if git is not available
+        info "Git not found, downloading tarball..."
+        download "https://github.com/${REPO}/archive/refs/heads/main.tar.gz" "$tmp_dir/ctx.tar.gz"
+        tar -xzf "$tmp_dir/ctx.tar.gz" -C "$tmp_dir"
+        mv "$tmp_dir/ctx-main" "$tmp_dir/ctx"
+    fi
+
+    # Build the project
+    info "Building ctx (this may take a minute)..."
+    cd "$tmp_dir/ctx"
+    cargo build --release || error "Build failed"
+
+    # Create install directory if it doesn't exist
+    mkdir -p "$INSTALL_DIR"
+
+    # Copy binary to install directory
+    info "Installing binary to $INSTALL_DIR..."
+    cp "target/release/$BINARY_NAME" "$INSTALL_DIR/"
+    chmod +x "$INSTALL_DIR/$BINARY_NAME"
+    success "Installed $BINARY_NAME to $INSTALL_DIR"
+
+    # Install skills for Claude Code
+    info "Installing skills for Claude Code..."
+    mkdir -p "$SKILLS_DIR"
+    if [ -d ".claude/skills/ctx" ]; then
+        cp -r ".claude/skills/ctx" "$SKILLS_DIR/"
+        success "Installed skills to $SKILLS_DIR/ctx"
+    elif [ -d ".skills/ctx" ]; then
+        cp -r ".skills/ctx" "$SKILLS_DIR/"
+        success "Installed skills to $SKILLS_DIR/ctx"
+    else
+        warn "Skills directory not found in repository, skipping skills installation"
+    fi
+
+    # Return to original directory before cleanup
+    cd - > /dev/null
 
     # Verify installation
     if [ -x "$INSTALL_DIR/$BINARY_NAME" ]; then
@@ -252,6 +173,11 @@ main() {
         echo "  ctx init        # Initialize in your project"
         echo "  ctx status      # Show project overview"
         echo ""
+
+        if [ -d "$SKILLS_DIR/ctx" ]; then
+            info "Claude Code skills installed at: $SKILLS_DIR/ctx"
+            echo ""
+        fi
     else
         error "Installation failed - binary not found at $INSTALL_DIR/$BINARY_NAME"
     fi
